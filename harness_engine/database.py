@@ -39,6 +39,10 @@ def init_db() -> None:
             );
             """
         )
+        try:
+            _conn.execute("ALTER TABLE command_logs ADD COLUMN cwd TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         _conn.commit()
 
 
@@ -55,13 +59,13 @@ def log_session(session_id: str, ip: str, username: str) -> bool:
 
 
 def log_command(session_id: str, command: str, output: str,
-                threat_level: str, mitre_tactic: str) -> None:
+                threat_level: str, mitre_tactic: str, cwd: str = "~") -> None:
     with _lock:
         _conn.execute(
             "INSERT INTO command_logs "
-            "(session_id, command, output, threat_level, mitre_tactic, timestamp) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (session_id, command, output, threat_level, mitre_tactic, _now()),
+            "(session_id, command, output, threat_level, mitre_tactic, timestamp, cwd) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (session_id, command, output, threat_level, mitre_tactic, _now(), cwd),
         )
         _conn.commit()
 
@@ -72,7 +76,7 @@ def get_recent_logs(limit: int = 50) -> list[dict]:
         rows = _conn.execute(
             """
             SELECT c.id, c.session_id, s.ip, s.username, c.command, c.output,
-                   c.threat_level, c.mitre_tactic, c.timestamp
+                   c.threat_level, c.mitre_tactic, c.timestamp, c.cwd
             FROM command_logs c
             LEFT JOIN sessions s ON s.session_id = c.session_id
             ORDER BY c.id DESC
@@ -92,6 +96,7 @@ def get_stats() -> dict:
         ).fetchall()
         tactic_rows = _conn.execute(
             "SELECT mitre_tactic, COUNT(*) AS n FROM command_logs "
+            "WHERE mitre_tactic IS NOT NULL AND mitre_tactic != '' "
             "GROUP BY mitre_tactic ORDER BY n DESC"
         ).fetchall()
 

@@ -65,6 +65,10 @@ async def handle_command(req: CommandRequest):
     # 1. Register the session (no-op if it already exists)
     database.log_session(req.session_id, req.ip, req.username)
 
+    # Capture cwd BEFORE intercept(): `cd` mutates it, and the prompt should
+    # show where the attacker was when they typed the command.
+    cwd_before = sessions.get_cwd(req.session_id)
+
     # 2. Fast-path commands (cd, clear, pwd) skip the LLM entirely
     result = sessions.intercept(req.session_id, req.command)
 
@@ -83,7 +87,8 @@ async def handle_command(req: CommandRequest):
 
     # 5. Persist + update rolling context
     database.log_command(
-        req.session_id, req.command, result, threat["level"], threat["tactic"]
+        req.session_id, req.command, result,
+        threat["level"], threat["tactic"], cwd_before
     )
     sessions.add_history(req.session_id, req.command, result)
 
